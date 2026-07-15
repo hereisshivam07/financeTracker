@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import './App.css';
 
+// PRODUCTION API CONFIGURATION
+const API_BASE_URL = 'https://financetracker-jvgt.onrender.com';
+
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [userEmail, setUserEmail] = useState(localStorage.getItem('email') || '');
@@ -20,7 +23,7 @@ function App() {
 
   const fetchTransactions = () => {
     if (!token) return;
-    fetch('http://localhost:5000/api/transactions', {
+    fetch(`${API_BASE_URL}/api/transactions`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then((res) => {
@@ -65,7 +68,7 @@ function App() {
     setAuthError('');
     const endpoint = isLoginView ? '/api/auth/login' : '/api/auth/signup';
 
-    fetch(`http://localhost:5000${endpoint}`, {
+    fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: authEmail, password: authPassword })
@@ -104,7 +107,7 @@ function App() {
     e.preventDefault();
     if (!description.trim() || !amount || Number(amount) <= 0) return;
 
-    fetch('http://localhost:5000/api/transactions/add', {
+    fetch(`${API_BASE_URL}/api/transactions/add`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -122,7 +125,7 @@ function App() {
   };
 
   const handleDelete = (id) => {
-    fetch(`http://localhost:5000/api/transactions/${id}`, {
+    fetch(`${API_BASE_URL}/api/transactions/${id}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
     })
@@ -210,34 +213,34 @@ function App() {
       </section>
 
       {/* DYNAMIC VISUAL INTERACTIVE LAYER PANEL (CLIPPING BUG FIXED) */}
-    {chartData.length > 0 && (
-    <section className="panel-card" style={{ marginBottom: '40px', height: '360px' }}>
-    <h2 style={{ marginBottom: '5px' }}>Outflow Allocation Matrix</h2>
-    <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '15px' }}>
-      Proportional analytics showing real-time distribution across active spending categories.
-    </p>
-    <div style={{ width: '100%', height: '260px' }}>
-      <ResponsiveContainer width="100%" height="100%">
-    {/* Added margin here to give the circle breathing room inside the boundary box */}
-    <PieChart margin={{ top: 15, right: 10, bottom: 5, left: 10 }}>
-    <Pie
-      data={chartData}
-      cx="50%"
-      cy="50%" // Set to 50% to center it perfectly and stop top clipping
-      innerRadius={55} // Slighly reduced to maintain perfect proportions
-      outerRadius={80} // Slighly adjusted to keep it inside container bounds
-      paddingAngle={4}
-      dataKey="value"
-      >
-      {chartData.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-      ))}
-        </Pie>
-        <Tooltip formatter={(value) => `₹${value.toFixed(2)}`} />
-        <Legend verticalAlign="bottom" height={36} iconType="circle" />
-        </PieChart>
-        </ResponsiveContainer>
-        </div>
+      {chartData.length > 0 && (
+        <section className="panel-card" style={{ marginBottom: '40px', height: '360px' }}>
+          <h2 style={{ marginBottom: '5px' }}>Outflow Allocation Matrix</h2>
+          <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '15px' }}>
+            Proportional analytics showing real-time distribution across active spending categories.
+          </p>
+          <div style={{ width: '100%', height: '260px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              {/* Added margin here to give the circle breathing room inside the boundary box */}
+              <PieChart margin={{ top: 15, right: 10, bottom: 5, left: 10 }}>
+                <Pie
+                  data={chartData}
+                  cx="50%"
+                  cy="50%" // Set to 50% to center it perfectly and stop top clipping
+                  innerRadius={55} // Slighly reduced to maintain perfect proportions
+                  outerRadius={80} // Slighly adjusted to keep it inside container bounds
+                  paddingAngle={4}
+                  dataKey="value"
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => `₹${value.toFixed(2)}`} />
+                <Legend verticalAlign="bottom" height={36} iconType="circle" />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
         </section>
       )}
 

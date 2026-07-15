@@ -17,7 +17,15 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI; // <-- Extracted safely from your .env configuration
 
-app.use(cors());
+// MIDDLEWARE CONFIGURATION (Updated for secure cross-origin requests)
+app.use(cors({
+  origin: [
+    'http://localhost:5173', // Vite default development port
+    'http://localhost:3000'  // Standard alternate frontend port
+  ],
+  credentials: true // Allows session headers and authorization tokens to pass securely
+}));
+
 app.use(express.json());
 
 // Database Connection
