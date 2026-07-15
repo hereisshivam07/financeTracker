@@ -57,7 +57,6 @@ function App() {
   const [authError, setAuthError] = useState('');
 
   const [transactions, setTransactions] = useState([]);
-  const [dbBudgets, setDbBudgets] = useState({}); // Dynamic budgets fetched from backend database
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]); // Date Picker State
@@ -101,32 +100,12 @@ function App() {
       });
   }, [token, timeScope]);
 
-  // Fetch customizable budget limits from DB database
-  const fetchBudgets = useCallback(() => {
-    if (!token) return;
-    fetch(`${API_BASE_URL}/api/budgets`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          const budgetMap = {};
-          data.forEach(b => {
-            budgetMap[b.category] = b.limit;
-          });
-          setDbBudgets(budgetMap);
-        }
-      })
-      .catch((err) => console.error("Could not load budgets:", err));
-  }, [token]);
-
   // Trigger data sync on initial render or view filters adjustment
   useEffect(() => {
     if (token) {
       fetchTransactions();
-      fetchBudgets();
     }
-  }, [fetchTransactions, fetchBudgets, token]);
+  }, [fetchTransactions, token]);
 
   // Synchronize category selection when flipping between Expense & Income
   useEffect(() => {
@@ -173,7 +152,6 @@ function App() {
     setToken('');
     setUserEmail('');
     setTransactions([]);
-    setDbBudgets({});
   };
 
   const handleLogTransaction = (e) => {
@@ -236,37 +214,6 @@ function App() {
       });
   };
 
-  // Set/Edit a category's budget dynamically to database
-  const handleUpdateBudgetLimit = (catKey) => {
-    const currentLimit = dbBudgets[catKey] || 0;
-    const inputLimit = prompt(`Specify maximum monthly budget for ${CATEGORY_MAP[catKey] || catKey} (INR):`, currentLimit);
-    if (inputLimit === null) return; // User cancelled prompt
-    
-    const parsedLimit = parseFloat(inputLimit);
-    if (isNaN(parsedLimit) || parsedLimit < 0) {
-      alert("Please input a valid numeric value.");
-      return;
-    }
-
-    fetch(`${API_BASE_URL}/api/budgets`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ category: catKey, limit: parsedLimit })
-    })
-      .then(res => {
-        if (!res.ok) throw new Error("Failed to update budget");
-        return res.json();
-      })
-      .then(() => fetchBudgets())
-      .catch(err => {
-        console.error(err);
-        alert("Error updating budget record.");
-      });
-  };
-
   // React state filtering based on Search Query + Flow Pill
   const finalFilteredTransactions = useMemo(() => {
     return transactions.filter(t => {
@@ -293,35 +240,14 @@ function App() {
     .map(cat => {
       const totalAmount = groupedExpenses[cat];
       const percentage = expenseTotal > 0 ? (totalAmount / expenseTotal) * 100 : 0;
-      
-      // Pull dynamic limits directly from DB object map (default to 0)
-      const limit = dbBudgets[cat] || 0;
-      const limitUsagePercentage = limit > 0 ? (totalAmount / limit) * 100 : 0;
-      
-      let displayColor = CATEGORY_COLORS[cat] || '#8e8e93';
-      let isWarning = false;
-      let isCritical = false;
-      
-      if (limit > 0) {
-        if (limitUsagePercentage >= 100) {
-          displayColor = '#ff3b30'; // iOS Red
-          isCritical = true;
-        } else if (limitUsagePercentage >= 85) {
-          displayColor = '#ff9500'; // iOS Orange
-          isWarning = true;
-        }
-      }
+      const displayColor = CATEGORY_COLORS[cat] || '#8e8e93';
 
       return {
         key: cat,
         label: CATEGORY_MAP[cat] || cat,
         amount: totalAmount,
         percentage: percentage,
-        limitUsagePercentage,
-        limit,
-        color: displayColor,
-        isWarning,
-        isCritical
+        color: displayColor
       };
     })
     .sort((a, b) => b.amount - a.amount);
@@ -437,17 +363,13 @@ function App() {
         </div>
       </section>
 
-      {/* 📊 CATEGORY TRACKER LINKED TO DYNAMIC DATABASE BUDGETS */}
+      {/* 📊 CATEGORY TRACKER */}
       {categoryBreakdownList.length > 0 && (
         <section className="panel-card metrics-breakdown-card">
           <div className="breakdown-header">
             <div>
               <h2>Outflow Distribution Profile</h2>
-              <span className="breakdown-subtitle">Click the edit button (✏️) on any category to change database limits</span>
             </div>
-            {timeScope !== 'current-month' && (
-              <span className="info-warning-tag">⚠️ Switch to "July 2026" above to view active budget targets</span>
-            )}
           </div>
           
           <div className="allocation-track-list">
@@ -456,25 +378,10 @@ function App() {
                 <div className="allocation-details">
                   <span className="allocation-label">
                     {item.label}
-                    {item.isCritical && <span className="warning-pill red">Over Budget!</span>}
-                    {item.isWarning && <span className="warning-pill orange">Approaching Limit</span>}
-                    <button 
-                      onClick={() => handleUpdateBudgetLimit(item.key)} 
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', opacity: 0.6 }}
-                      title="Edit Budget Target"
-                    >
-                      ✏️
-                    </button>
                   </span>
                   <span className="allocation-values">
                     <strong style={{ color: '#1c1c1e' }}>₹{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-                    {item.limit > 0 && timeScope === 'current-month' ? (
-                      <span className="allocation-percentage" style={{ color: item.isCritical ? '#ff3b30' : '#8e8e93' }}>
-                        (₹{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 0 })} / ₹{item.limit.toLocaleString('en-IN', { minimumFractionDigits: 0 })} Budgeted)
-                      </span>
-                    ) : (
-                      <span className="allocation-percentage">({item.percentage.toFixed(1)}%)</span>
-                    )}
+                    <span className="allocation-percentage">({item.percentage.toFixed(1)}%)</span>
                   </span>
                 </div>
                 {/* Horizontal Progress Track */}
@@ -482,7 +389,7 @@ function App() {
                   <div 
                     className="allocation-bar-fill" 
                     style={{ 
-                      width: `${Math.min(item.limit > 0 && timeScope === 'current-month' ? item.limitUsagePercentage : item.percentage, 100)}%`, 
+                      width: `${Math.min(item.percentage, 100)}%`, 
                       backgroundColor: item.color 
                     }}
                   />

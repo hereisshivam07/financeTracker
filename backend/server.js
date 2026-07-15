@@ -29,26 +29,12 @@ app.use(cors({
 
 app.use(express.json());
 
-// Database Connection with Self-Cleaning Legacy Index Logic
+// Database Connection
 mongoose.connect(MONGO_URI, {
     dbName: 'financeTracker' // Forcefully targets financeTracker and stops the "test" fallback!
 })
-.then(async () => {
+.then(() => {
     console.log("MongoDB secure engine connected! 🎉");
-    
-    // 🧹 SELF-CLEANING POOL: Automatically drop index breaking budget updates
-    try {
-        const budgetCollection = mongoose.connection.collection('budgets');
-        const indexes = await budgetCollection.indexes();
-        const hasLegacyIndex = indexes.some(idx => idx.name === 'user_1_category_1');
-        
-        if (hasLegacyIndex) {
-            await budgetCollection.dropIndex('user_1_category_1');
-            console.log("🧹 Legacy index 'user_1_category_1' successfully dropped!");
-        }
-    } catch (indexErr) {
-        console.warn("⚠️ Index cleaning check handled gracefully:", indexErr.message);
-    }
 })
 .catch((err) => console.error("Database connection error:", err));
 
@@ -102,29 +88,6 @@ const TransactionSchema = new mongoose.Schema({
     date: { type: Date, default: Date.now }
 });
 const Transaction = mongoose.model('Transaction', TransactionSchema);
-
-// Add this near your other Mongoose Schemas (e.g., inside server.js)
-const budgetSchema = new mongoose.Schema({
-  userId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'User', 
-    required: true 
-  },
-  category: { 
-    type: String, 
-    required: true 
-  },
-  limit: { 
-    type: Number, 
-    required: true, 
-    default: 0 
-  }
-});
-
-// Ensures a user can only have one budget setting per category
-budgetSchema.index({ userId: 1, category: 1 }, { unique: true });
-
-const Budget = mongoose.model('Budget', budgetSchema);
 
 // ==========================================
 // 3. AUTHENTICATION MIDDLEWARE
@@ -217,7 +180,7 @@ app.get('/api/transactions', authenticateToken, async (req, res) => {
     }
 });
 
-// TRANSACTIONS: Log an Entry (With Humanized Smart-Budget Calculations)
+// TRANSACTIONS: Log an Entry (Cleaned of Budget diagnostics)
 app.post('/api/transactions/add', authenticateToken, async (req, res) => {
     try {
         const { description, amount, type, category, date } = req.body;
@@ -236,45 +199,9 @@ app.post('/api/transactions/add', authenticateToken, async (req, res) => {
 
         await newTransaction.save();
 
-        // 🧠 INTUITIVE INTEGRATION: Conversational budgeting diagnostics
-        let budgetAlert = null;
-        if (type === 'expense') {
-            const budget = await Budget.findOne({ userId: req.user.userId, category });
-            if (budget) {
-                const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-                const endOfMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59, 999);
-                
-                const monthExpenses = await Transaction.find({
-                    userId: req.user.userId,
-                    category,
-                    type: 'expense',
-                    date: { $gte: startOfMonth, $lte: endOfMonth }
-                });
-
-                const totalSpent = monthExpenses.reduce((sum, item) => sum + Number(decrypt(item.amount)), 0);
-                const usagePercentage = Math.round((totalSpent / budget.limit) * 100);
-
-                // Build empathetic, warm alert context for the UI to consume
-                if (usagePercentage >= 100) {
-                    budgetAlert = {
-                        status: "breached",
-                        percentage: usagePercentage,
-                        message: `Heads up! You've used ${usagePercentage}% of your limit on "${category}". You're over by $${(totalSpent - budget.limit).toFixed(2)}.`,
-                    };
-                } else if (usagePercentage >= 85) {
-                    budgetAlert = {
-                        status: "warning",
-                        percentage: usagePercentage,
-                        message: `Careful! You've used ${usagePercentage}% of your limit on "${category}". Only $${(budget.limit - totalSpent).toFixed(2)} left.`,
-                    };
-                }
-            }
-        }
-
         res.status(201).json({ 
             message: "Transaction saved securely!", 
-            transactionId: newTransaction._id,
-            budgetAlert 
+            transactionId: newTransaction._id
         });
     } catch (err) {
         res.status(400).json({ error: err.message });
@@ -314,114 +241,6 @@ app.delete('/api/transactions/:id', authenticateToken, async (req, res) => {
         res.json({ message: "Record cleared." });
     } catch (err) {
         res.status(500).json({ error: err.message });
-    }
-});
-
-// ==========================================
-// ==========================================
-// 6. API ENDPOINTS: BUDGETS
-// ==========================================
-
-// BUDGETS: Get active budgets AND dynamic monthly utilization calculations
-app.get('/api/budgets/status', authenticateToken, async (req, res) => {
-    try {
-        console.log(`[GET] /api/budgets/status requested by user: ${req.user.userId}`);
-        const budgets = await Budget.find({ userId: req.user.userId });
-        const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        const endOfMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59, 999);
-
-        // Fetch user expenses for current month to calculate usage states
-        const rawExpenses = await Transaction.find({
-            userId: req.user.userId,
-            type: 'expense',
-            date: { $gte: startOfMonth, $lte: endOfMonth }
-        });
-
-        // Compute spending metrics across categories using our decryption routine
-        const spendingByCategory = {};
-        rawExpenses.forEach(exp => {
-            const decAmount = Number(decrypt(exp.amount)) || 0;
-            const categoryKey = exp.category ? exp.category.trim().toLowerCase() : 'other';
-            spendingByCategory[categoryKey] = (spendingByCategory[categoryKey] || 0) + decAmount;
-        });
-
-        // Map rich status metrics directly to each budget object
-        const statusMap = budgets.map(b => {
-            const categoryKey = b.category ? b.category.trim().toLowerCase() : 'other';
-            const spent = spendingByCategory[categoryKey] || 0;
-            const remaining = Math.max(0, b.limit - spent);
-            const percentage = b.limit > 0 ? Math.round((spent / b.limit) * 100) : 0;
-
-            return {
-                _id: b._id,
-                category: b.category, // Keeps original display casing
-                limit: b.limit,
-                spent,
-                remaining,
-                percentage,
-                healthStatus: percentage >= 100 ? 'breached' : percentage >= 85 ? 'warning' : 'healthy'
-            };
-        });
-
-        res.json(statusMap);
-    } catch (err) {
-        console.error("❌ Budget Status Error:", err);
-        res.status(500).json({ error: "Could not fetch updated budget statuses." });
-    }
-});
-
-// BUDGETS: Get raw budget limits
-app.get('/api/budgets', authenticateToken, async (req, res) => {
-    try {
-        console.log(`[GET] /api/budgets requested by user: ${req.user.userId}`);
-        const budgets = await Budget.find({ userId: req.user.userId });
-        res.json(budgets);
-    } catch (err) {
-        console.error("❌ Budget Retrieval Error:", err);
-        res.status(500).json({ error: "Failed to retrieve budget limits." });
-    }
-});
-
-// BUDGETS: Upsert with type validation
-app.post('/api/budgets', authenticateToken, async (req, res) => {
-    try {
-        const { category, limit } = req.body;
-        console.log(`[POST] /api/budgets hit by user ${req.user.userId} -> Category: "${category}", Limit: ${limit}`);
-        
-        const numericLimit = Number(limit);
-
-        if (!category || isNaN(numericLimit) || numericLimit < 0) {
-            return res.status(400).json({ error: "Please enter a valid, positive budget limit number." });
-        }
-
-        const cleanCategory = category.trim();
-
-        // Normalizing to lowercase prevents duplicate index crashes (e.g., "Food" vs "food")
-        const updatedBudget = await Budget.findOneAndUpdate(
-            { userId: req.user.userId, category: cleanCategory },
-            { limit: numericLimit },
-            { new: true, upsert: true, runValidators: true }
-        );
-        res.json(updatedBudget);
-    } catch (err) {
-        console.error("❌ Budget Update Error Detail:", err);
-        if (err.code === 11000) {
-            return res.status(400).json({ error: "Duplicate category budget detected." });
-        }
-        res.status(500).json({ error: err.message || "Failed to update budget limit." });
-    }
-});
-
-// BUDGETS: Delete/Remove budget limit for a category
-app.delete('/api/budgets/:id', authenticateToken, async (req, res) => {
-    try {
-        console.log(`[DELETE] /api/budgets/${req.params.id} requested by user: ${req.user.userId}`);
-        const deleted = await Budget.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
-        if (!deleted) return res.status(404).json({ error: "Budget not found or unauthorized." });
-        res.json({ message: "Budget limit removed successfully." });
-    } catch (err) {
-         console.error("❌ Budget Delete Error:", err);
-         res.status(500).json({ error: err.message });
     }
 });
 
