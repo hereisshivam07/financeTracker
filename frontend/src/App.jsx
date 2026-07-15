@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import './App.css';
 
 // PRODUCTION API CONFIGURATION
-const API_BASE_URL = 'https://financetracker-jvgt.onrender.com/api';
+const API_BASE_URL = 'https://financetracker-jvgt.onrender.com';
 
 // Comprehensive, expanded real-life category lists with visual emojis
 const CATEGORY_MAP = {
